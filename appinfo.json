@@ -1,0 +1,16 @@
+{
+  "id": "com.nuvio.lg",
+  "version": "1.0.1",
+  "vendor": "Nuvio",
+  "type": "web",
+  "main": "index.html",
+  "title": "Nuvio",
+  "icon": "assets/images/nuviotv.png",
+  "largeIcon": "assets/images/nuviotv.png",
+  "resolution": "1920x1080",
+  "transparent": false,
+  "requiredPermissions": [
+    "media.operation",
+    "internet"
+  ]
+}
