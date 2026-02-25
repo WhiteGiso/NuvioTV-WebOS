@@ -285,6 +285,7 @@ export const MetaDetailsScreen = {
     this.pendingEpisodeSelection = null;
     this.pendingMovieSelection = null;
     this.streamChooserFocus = null;
+    this.streamChooserLoadToken = 0;
     this.isLoadingDetail = true;
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
     this.seriesInsightTab = this.seriesInsightTab || "cast";
@@ -629,10 +630,36 @@ export const MetaDetailsScreen = {
         label: stream.title || stream.name || `${groupName} stream`,
         description: stream.description || stream.name || "",
         addonName: groupName,
+        addonLogo: group.addonLogo || stream.addonLogo || null,
         sourceType: stream.type || stream.source || "",
-        url: stream.url
+        url: stream.url,
+        raw: stream
       })).filter((stream) => Boolean(stream.url));
     });
+  },
+
+  mergeStreamItems(existing = [], incoming = []) {
+    const byKey = new Set();
+    const merged = [];
+    const push = (item) => {
+      if (!item?.url) {
+        return;
+      }
+      const key = [
+        String(item.addonName || "Addon"),
+        String(item.url || ""),
+        String(item.sourceType || ""),
+        String(item.label || "")
+      ].join("::");
+      if (byKey.has(key)) {
+        return;
+      }
+      byKey.add(key);
+      merged.push(item);
+    };
+    (existing || []).forEach(push);
+    (incoming || []).forEach(push);
+    return merged;
   },
 
   render(meta) {
@@ -1049,12 +1076,15 @@ export const MetaDetailsScreen = {
       return;
     }
     const episode = this.episodes.find((entry) => entry.id === videoId) || null;
+    const requestKey = (this.streamChooserLoadToken || 0) + 1;
+    this.streamChooserLoadToken = requestKey;
     this.pendingEpisodeSelection = {
       videoId,
       episode,
       streams: [],
       addonFilter: "all",
-      loading: true
+      loading: true,
+      requestKey
     };
     this.streamChooserFocus = { zone: "filter", index: 0 };
     this.pendingMovieSelection = null;
@@ -1065,26 +1095,47 @@ export const MetaDetailsScreen = {
       {
         itemId: String(this.params?.itemId || ""),
         season: episode?.season ?? null,
-        episode: episode?.episode ?? null
+        episode: episode?.episode ?? null,
+        onChunk: (chunkResult) => {
+          if (!this.pendingEpisodeSelection
+            || this.pendingEpisodeSelection.videoId !== videoId
+            || this.pendingEpisodeSelection.requestKey !== requestKey) {
+            return;
+          }
+          const chunkItems = this.flattenStreams(chunkResult);
+          if (!chunkItems.length) {
+            return;
+          }
+          this.pendingEpisodeSelection.streams = this.mergeStreamItems(
+            this.pendingEpisodeSelection.streams,
+            chunkItems
+          );
+          this.renderEpisodeStreamChooser();
+        }
       }
     );
     const streamItems = this.flattenStreams(streamResult);
-    if (!this.pendingEpisodeSelection || this.pendingEpisodeSelection.videoId !== videoId) {
+    if (!this.pendingEpisodeSelection
+      || this.pendingEpisodeSelection.videoId !== videoId
+      || this.pendingEpisodeSelection.requestKey !== requestKey) {
       return;
     }
     this.pendingEpisodeSelection = {
       ...this.pendingEpisodeSelection,
-      streams: streamItems,
+      streams: this.mergeStreamItems(this.pendingEpisodeSelection.streams, streamItems),
       loading: false
     };
     this.renderEpisodeStreamChooser();
   },
 
   async openMovieStreamChooser() {
+    const requestKey = (this.streamChooserLoadToken || 0) + 1;
+    this.streamChooserLoadToken = requestKey;
     this.pendingMovieSelection = {
       streams: [],
       addonFilter: "all",
-      loading: true
+      loading: true,
+      requestKey
     };
     this.streamChooserFocus = { zone: "filter", index: 0 };
     this.pendingEpisodeSelection = null;
@@ -1092,16 +1143,32 @@ export const MetaDetailsScreen = {
     const streamResult = await streamRepository.getStreamsFromAllAddons(
       this.params?.itemType || "movie",
       this.params?.itemId,
-      { itemId: String(this.params?.itemId || "") }
+      {
+        itemId: String(this.params?.itemId || ""),
+        onChunk: (chunkResult) => {
+          if (!this.pendingMovieSelection || this.pendingMovieSelection.requestKey !== requestKey) {
+            return;
+          }
+          const chunkItems = this.flattenStreams(chunkResult);
+          if (!chunkItems.length) {
+            return;
+          }
+          this.pendingMovieSelection.streams = this.mergeStreamItems(
+            this.pendingMovieSelection.streams,
+            chunkItems
+          );
+          this.renderMovieStreamChooser();
+        }
+      }
     );
     const streams = this.flattenStreams(streamResult);
     this.streamItems = streams;
-    if (!this.pendingMovieSelection) {
+    if (!this.pendingMovieSelection || this.pendingMovieSelection.requestKey !== requestKey) {
       return;
     }
     this.pendingMovieSelection = {
-      streams,
-      addonFilter: "all",
+      ...this.pendingMovieSelection,
+      streams: this.mergeStreamItems(this.pendingMovieSelection.streams, streams),
       loading: false
     };
     this.renderMovieStreamChooser();
@@ -1113,7 +1180,7 @@ export const MetaDetailsScreen = {
 
   getFilteredEpisodeStreams() {
     const pending = this.getActivePendingSelection();
-    if (!pending || pending.loading || !pending.streams.length) {
+    if (!pending || !pending.streams.length) {
       return [];
     }
     if (pending.addonFilter === "all") {
@@ -1144,10 +1211,8 @@ export const MetaDetailsScreen = {
       `)
     ].join("");
 
-    const streamCards = pending.loading
-      ? `<div class="series-stream-empty">Loading streams...</div>`
-      : filtered.length
-        ? filtered.map((stream) => `
+    const streamCards = filtered.length
+      ? filtered.map((stream) => `
           <article class="series-stream-card focusable"
                    data-action="playEpisodeStream"
                    data-stream-id="${stream.id}">
@@ -1163,6 +1228,8 @@ export const MetaDetailsScreen = {
             </div>
           </article>
         `).join("")
+      : pending.loading
+        ? `<div class="series-stream-empty">Loading streams...</div>`
         : `<div class="series-stream-empty">No streams found for this filter.</div>`;
 
     mount.innerHTML = `
@@ -1208,10 +1275,8 @@ export const MetaDetailsScreen = {
       `)
     ].join("");
 
-    const streamCards = pending.loading
-      ? `<div class="series-stream-empty">Loading streams...</div>`
-      : filtered.length
-        ? filtered.map((stream) => `
+    const streamCards = filtered.length
+      ? filtered.map((stream) => `
           <article class="series-stream-card focusable"
                    data-action="playPendingStream"
                    data-stream-id="${stream.id}">
@@ -1227,6 +1292,8 @@ export const MetaDetailsScreen = {
             </div>
           </article>
         `).join("")
+      : pending.loading
+        ? `<div class="series-stream-empty">Loading streams...</div>`
         : `<div class="series-stream-empty">No streams found for this filter.</div>`;
 
     mount.innerHTML = `
@@ -1251,6 +1318,7 @@ export const MetaDetailsScreen = {
   },
 
   closeEpisodeStreamChooser() {
+    this.streamChooserLoadToken = (this.streamChooserLoadToken || 0) + 1;
     this.pendingEpisodeSelection = null;
     this.pendingMovieSelection = null;
     this.streamChooserFocus = null;
@@ -1294,6 +1362,8 @@ export const MetaDetailsScreen = {
         : "",
       playerBackdropUrl: this.meta?.background || this.meta?.poster || null,
       playerLogoUrl: this.meta?.logo || null,
+      parentalWarnings: this.meta?.parentalWarnings || null,
+      parentalGuide: this.meta?.parentalGuide || null,
       episodes: this.episodes || [],
       streamCandidates: pending.streams || [],
       nextEpisodeVideoId: nextEpisode?.id || null,
@@ -1314,6 +1384,8 @@ export const MetaDetailsScreen = {
       backdrop: this.meta?.background || this.meta?.poster || null,
       poster: this.meta?.poster || null,
       logo: this.meta?.logo || null,
+      parentalWarnings: this.meta?.parentalWarnings || null,
+      parentalGuide: this.meta?.parentalGuide || null,
       videoId: episode.id,
       season: episode.season,
       episode: episode.episode,
@@ -1333,6 +1405,8 @@ export const MetaDetailsScreen = {
       backdrop: this.meta?.background || this.meta?.poster || null,
       poster: this.meta?.poster || null,
       logo: this.meta?.logo || null,
+      parentalWarnings: this.meta?.parentalWarnings || null,
+      parentalGuide: this.meta?.parentalGuide || null,
       videoId: this.params?.itemId || null,
       episodes: []
     });
@@ -1357,6 +1431,8 @@ export const MetaDetailsScreen = {
       playerSubtitle: "",
       playerBackdropUrl: this.meta?.background || this.meta?.poster || null,
       playerLogoUrl: this.meta?.logo || null,
+      parentalWarnings: this.meta?.parentalWarnings || null,
+      parentalGuide: this.meta?.parentalGuide || null,
       episodes: [],
       streamCandidates: pending.streams || []
     });
@@ -1499,7 +1575,7 @@ export const MetaDetailsScreen = {
       return false;
     }
     const pending = this.getActivePendingSelection();
-    if (pending?.loading) {
+    if (pending?.loading && !pending?.streams?.length) {
       if (typeof event?.preventDefault === "function") {
         event.preventDefault();
       }

@@ -289,6 +289,50 @@ export const DiscoverScreen = {
     this.focusFilter(filters[nextIndex]);
   },
 
+  focusNearestFilterFromCard(cardNode) {
+    const filters = Array.from(this.container?.querySelectorAll(".discover-filter.focusable") || []);
+    if (!filters.length || !cardNode) return false;
+    const cardRect = cardNode.getBoundingClientRect();
+    const cardCenterX = cardRect.left + (cardRect.width / 2);
+    let target = null;
+    let minDx = Number.POSITIVE_INFINITY;
+    filters.forEach((filter) => {
+      const rect = filter.getBoundingClientRect();
+      const centerX = rect.left + (rect.width / 2);
+      const dx = Math.abs(centerX - cardCenterX);
+      if (dx < minDx) {
+        minDx = dx;
+        target = filter;
+      }
+    });
+    if (!target) return false;
+    this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    target.classList.add("focused");
+    target.focus();
+    this.lastFocusedAction = String(target.dataset.action || "discoverFilterType");
+    return true;
+  },
+
+  moveCardFocus(direction) {
+    const selector = ".discover-grid .discover-card.focusable";
+    const before = this.container?.querySelector(`${selector}.focused`) || null;
+    ScreenUtils.moveFocusDirectional(this.container, direction, selector);
+    const after = this.container?.querySelector(`${selector}.focused`) || null;
+    return Boolean(after && before !== after);
+  },
+
+  focusFirstContentCard() {
+    const firstCard = this.container?.querySelector(".discover-grid .discover-card.focusable");
+    if (!firstCard) {
+      return false;
+    }
+    this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    firstCard.classList.add("focused");
+    firstCard.focus();
+    this.lastFocusedAction = String(firstCard.dataset.action || "openDetail");
+    return true;
+  },
+
   getKindFromFilterAction(action) {
     if (action === "discoverFilterType") return "type";
     if (action === "discoverFilterCatalog") return "catalog";
@@ -447,6 +491,9 @@ export const DiscoverScreen = {
         return;
       }
       if (isEnterKey(event)) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
         this.selectCurrentPickerOption();
         return;
       }
@@ -480,6 +527,33 @@ export const DiscoverScreen = {
       }
       if (isRightKey(event)) {
         this.moveFilterFocus(1);
+        return;
+      }
+      if (isDownKey(event)) {
+        this.focusFirstContentCard();
+        return;
+      }
+    }
+
+    if (currentAction === "openDetail") {
+      if (isLeftKey(event)) {
+        if (!this.moveCardFocus("left")) {
+          ScreenUtils.moveFocusDirectional(this.container, "left");
+        }
+        return;
+      }
+      if (isRightKey(event)) {
+        this.moveCardFocus("right");
+        return;
+      }
+      if (isDownKey(event)) {
+        this.moveCardFocus("down");
+        return;
+      }
+      if (isUpKey(event)) {
+        if (!this.moveCardFocus("up")) {
+          this.focusNearestFilterFromCard(current);
+        }
         return;
       }
     }

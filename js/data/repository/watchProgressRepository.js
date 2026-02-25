@@ -1,4 +1,9 @@
 import { WatchProgressStore } from "../local/watchProgressStore.js";
+import { ProfileManager } from "../../core/profile/profileManager.js";
+
+function activeProfileId() {
+  return String(ProfileManager.getActiveProfileId() || "1");
+}
 
 class WatchProgressRepository {
 
@@ -6,20 +11,20 @@ class WatchProgressRepository {
     WatchProgressStore.upsert({
       ...progress,
       updatedAt: progress.updatedAt || Date.now()
-    });
+    }, activeProfileId());
   }
 
   async getProgressByContentId(contentId) {
-    return WatchProgressStore.findByContentId(contentId);
+    return WatchProgressStore.findByContentId(contentId, activeProfileId());
   }
 
   async removeProgress(contentId, videoId = null) {
-    WatchProgressStore.remove(contentId, videoId);
+    WatchProgressStore.remove(contentId, videoId, activeProfileId());
   }
 
   async getRecent(limit = 30) {
     const byContent = new Map();
-    WatchProgressStore.list().forEach((item) => {
+    WatchProgressStore.listForProfile(activeProfileId()).forEach((item) => {
       if (!item?.contentId) {
         return;
       }
@@ -34,11 +39,11 @@ class WatchProgressRepository {
   }
 
   async getAll() {
-    return WatchProgressStore.list();
+    return WatchProgressStore.listForProfile(activeProfileId());
   }
 
   async replaceAll(items) {
-    WatchProgressStore.replaceAll(items || []);
+    WatchProgressStore.replaceForProfile(activeProfileId(), items || []);
   }
 
 }

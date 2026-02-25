@@ -3,7 +3,10 @@ import { LocalStore } from "../../core/storage/localStore.js";
 import { AddonApi } from "../remote/api/addonApi.js";
 
 const ADDON_URLS_KEY = "installedAddonUrls";
-const DEFAULT_ADDON_URLS = ["https://v3-cinemeta.strem.io"];
+const DEFAULT_ADDON_URLS = [
+  "https://v3-cinemeta.strem.io",
+  "https://opensubtitles-v3.strem.io"
+];
 
 class AddonRepository {
 
@@ -23,7 +26,13 @@ class AddonRepository {
   getInstalledAddonUrls() {
     const fromStorage = LocalStore.get(ADDON_URLS_KEY, null);
     if (Array.isArray(fromStorage) && fromStorage.length > 0) {
-      return fromStorage.map((url) => this.canonicalizeUrl(url));
+      const normalized = Array.from(new Set(fromStorage.map((url) => this.canonicalizeUrl(url)).filter(Boolean)));
+      if (!normalized.includes("https://opensubtitles-v3.strem.io")) {
+        const migrated = [...normalized, "https://opensubtitles-v3.strem.io"];
+        LocalStore.set(ADDON_URLS_KEY, migrated);
+        return migrated;
+      }
+      return normalized;
     }
 
     LocalStore.set(ADDON_URLS_KEY, DEFAULT_ADDON_URLS);

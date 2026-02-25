@@ -307,8 +307,159 @@ export const SearchScreen = {
     `;
 
     ScreenUtils.indexFocusables(this.container);
+    this.buildNavigationModel();
     this.bindSearchInputEvents();
-    ScreenUtils.setInitialFocus(this.container, "#searchInput");
+    const input = this.container.querySelector("#searchInput");
+    input?.blur?.();
+    ScreenUtils.setInitialFocus(this.container, ".search-discover-btn");
+  },
+
+  buildNavigationModel() {
+    const sidebar = Array.from(this.container?.querySelectorAll(".search-sidebar .focusable") || []);
+    const header = [
+      this.container?.querySelector(".search-discover-btn.focusable"),
+      this.container?.querySelector("#searchInput.focusable")
+    ].filter(Boolean);
+    const rows = Array.from(this.container?.querySelectorAll(".search-results-row .search-results-track") || [])
+      .map((track) => Array.from(track.querySelectorAll(".search-result-card.focusable")))
+      .filter((row) => row.length > 0);
+
+    sidebar.forEach((node, index) => {
+      node.dataset.navZone = "sidebar";
+      node.dataset.navIndex = String(index);
+    });
+
+    header.forEach((node, index) => {
+      node.dataset.navZone = "header";
+      node.dataset.navCol = String(index);
+    });
+
+    rows.forEach((rowNodes, rowIndex) => {
+      rowNodes.forEach((node, colIndex) => {
+        node.dataset.navZone = "results";
+        node.dataset.navRow = String(rowIndex);
+        node.dataset.navCol = String(colIndex);
+      });
+    });
+
+    this.navModel = { sidebar, header, rows };
+    this.lastMainFocus = header[1] || header[0] || rows[0]?.[0] || null;
+  },
+
+  focusNode(current, target) {
+    if (!target) return false;
+    if (current && current !== target) {
+      current.classList.remove("focused");
+    }
+    this.container?.querySelectorAll(".focusable.focused").forEach((node) => {
+      if (node !== target) node.classList.remove("focused");
+    });
+    target.classList.add("focused");
+    target.focus();
+    const zone = String(target.dataset.navZone || "");
+    if (zone === "header" || zone === "results") {
+      this.lastMainFocus = target;
+    }
+    if (zone === "results") {
+      target.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
+    }
+    return true;
+  },
+
+  handleSearchDpad(event) {
+    const keyCode = Number(event?.keyCode || 0);
+    const direction = keyCode === 38 ? "up"
+      : keyCode === 40 ? "down"
+        : keyCode === 37 ? "left"
+          : keyCode === 39 ? "right"
+            : null;
+    if (!direction) {
+      return false;
+    }
+
+    const nav = this.navModel || {};
+    const current = this.container?.querySelector(".focusable.focused") || null;
+    if (!current) {
+      return false;
+    }
+    const zone = String(current.dataset.navZone || "");
+
+    event?.preventDefault?.();
+
+    if (zone === "sidebar") {
+      const sidebarIndex = Number(current.dataset.navIndex || 0);
+      if (direction === "up") {
+        return this.focusNode(current, nav.sidebar?.[Math.max(0, sidebarIndex - 1)] || current) || true;
+      }
+      if (direction === "down") {
+        return this.focusNode(current, nav.sidebar?.[Math.min((nav.sidebar?.length || 1) - 1, sidebarIndex + 1)] || current) || true;
+      }
+      if (direction === "right") {
+        const target = this.lastMainFocus || nav.header?.[1] || nav.header?.[0] || nav.rows?.[0]?.[0] || null;
+        return this.focusNode(current, target) || true;
+      }
+      return true;
+    }
+
+    if (zone === "header") {
+      const col = Number(current.dataset.navCol || 0);
+      if (direction === "left") {
+        if (col > 0) return this.focusNode(current, nav.header?.[col - 1] || current) || true;
+        return this.focusNode(current, nav.sidebar?.[1] || nav.sidebar?.[0] || current) || true;
+      }
+      if (direction === "right") {
+        if (col < (nav.header?.length || 0) - 1) {
+          return this.focusNode(current, nav.header?.[col + 1] || current) || true;
+        }
+        return true;
+      }
+      if (direction === "down") {
+        const firstRow = nav.rows?.[0] || [];
+        const target = firstRow[Math.min(col, Math.max(0, firstRow.length - 1))] || firstRow[0] || null;
+        return this.focusNode(current, target) || true;
+      }
+      if (direction === "up") {
+        return this.focusNode(current, nav.sidebar?.[1] || nav.sidebar?.[0] || current) || true;
+      }
+      return true;
+    }
+
+    if (zone === "results") {
+      const row = Number(current.dataset.navRow || 0);
+      const col = Number(current.dataset.navCol || 0);
+      const rowNodes = nav.rows?.[row] || [];
+
+      if (direction === "left") {
+        if (col > 0) {
+          return this.focusNode(current, rowNodes[col - 1] || current) || true;
+        }
+        return this.focusNode(current, nav.sidebar?.[1] || nav.sidebar?.[0] || current) || true;
+      }
+      if (direction === "right") {
+        const target = rowNodes[col + 1] || null;
+        return this.focusNode(current, target || current) || true;
+      }
+      if (direction === "down") {
+        const nextRowNodes = nav.rows?.[row + 1] || null;
+        if (!nextRowNodes) {
+          return true;
+        }
+        const target = nextRowNodes[Math.min(col, nextRowNodes.length - 1)] || nextRowNodes[0] || null;
+        return this.focusNode(current, target) || true;
+      }
+      if (direction === "up") {
+        const prevRowNodes = nav.rows?.[row - 1] || null;
+        if (prevRowNodes) {
+          const target = prevRowNodes[Math.min(col, prevRowNodes.length - 1)] || prevRowNodes[0] || null;
+          return this.focusNode(current, target) || true;
+        }
+        const target = nav.header?.[Math.min(col, (nav.header?.length || 1) - 1)] || nav.header?.[0] || null;
+        return this.focusNode(current, target) || true;
+      }
+      return true;
+    }
+
+    return false;
   },
 
   bindSearchInputEvents() {
@@ -361,6 +512,10 @@ export const SearchScreen = {
     if (event.keyCode === 461 || event.keyCode === 27 || event.keyCode === 8 || event.keyCode === 10009) {
       event?.preventDefault?.();
       Router.navigate("home");
+      return;
+    }
+
+    if (this.handleSearchDpad(event)) {
       return;
     }
 

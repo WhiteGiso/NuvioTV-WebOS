@@ -47,10 +47,36 @@ function flattenStreams(streamResult) {
       label: stream.title || stream.name || `${groupName} stream`,
       description: stream.description || stream.name || "",
       addonName: groupName,
+      addonLogo: group.addonLogo || stream.addonLogo || null,
       sourceType: stream.type || stream.source || "",
-      url: stream.url
+      url: stream.url,
+      raw: stream
     })).filter((entry) => Boolean(entry.url));
   });
+}
+
+function mergeStreamItems(existing = [], incoming = []) {
+  const byKey = new Set();
+  const merged = [];
+  const push = (item) => {
+    if (!item?.url) {
+      return;
+    }
+    const key = [
+      String(item.addonName || "Addon"),
+      String(item.url || ""),
+      String(item.sourceType || ""),
+      String(item.label || "")
+    ].join("::");
+    if (byKey.has(key)) {
+      return;
+    }
+    byKey.add(key);
+    merged.push(item);
+  };
+  (existing || []).forEach(push);
+  (incoming || []).forEach(push);
+  return merged;
 }
 
 function normalizeType(itemType) {
@@ -84,13 +110,24 @@ export const StreamScreen = {
     const options = {
       itemId: String(this.params?.itemId || ""),
       season: this.params?.season ?? null,
-      episode: this.params?.episode ?? null
+      episode: this.params?.episode ?? null,
+      onChunk: (chunkResult) => {
+        if (token !== this.loadToken) {
+          return;
+        }
+        const chunkItems = flattenStreams(chunkResult);
+        if (!chunkItems.length) {
+          return;
+        }
+        this.streams = mergeStreamItems(this.streams, chunkItems);
+        this.render();
+      }
     };
     const streamResult = await streamRepository.getStreamsFromAllAddons(itemType, videoId, options);
     if (token !== this.loadToken) {
       return;
     }
-    this.streams = flattenStreams(streamResult);
+    this.streams = mergeStreamItems(this.streams, flattenStreams(streamResult));
     this.loading = false;
     this.render();
   },
@@ -201,10 +238,8 @@ export const StreamScreen = {
       `)
     ].join("");
 
-    const streamCards = this.loading
-      ? `<div class="series-stream-empty">Loading streams...</div>`
-      : filtered.length
-        ? filtered.map((stream) => `
+    const streamCards = filtered.length
+      ? filtered.map((stream) => `
           <article class="series-stream-card focusable" data-action="playStream" data-stream-id="${stream.id}">
             <div class="series-stream-title">${stream.label || "Stream"}</div>
             <div class="series-stream-desc">${stream.description || ""}</div>
@@ -217,6 +252,8 @@ export const StreamScreen = {
             </div>
           </article>
         `).join("")
+      : this.loading
+        ? `<div class="series-stream-empty">Loading streams...</div>`
         : `<div class="series-stream-empty">No streams found for this filter.</div>`;
 
     this.container.innerHTML = `
@@ -260,6 +297,8 @@ export const StreamScreen = {
       playerSubtitle: this.params?.episodeTitle || this.params?.playerSubtitle || "",
       playerBackdropUrl: this.params?.backdrop || this.params?.poster || null,
       playerLogoUrl: this.params?.logo || null,
+      parentalWarnings: this.params?.parentalWarnings || null,
+      parentalGuide: this.params?.parentalGuide || null,
       season: this.params?.season == null ? null : Number(this.params.season),
       episode: this.params?.episode == null ? null : Number(this.params.episode),
       episodes: Array.isArray(this.params?.episodes) ? this.params.episodes : [],

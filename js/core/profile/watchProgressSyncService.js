@@ -147,45 +147,45 @@ export const WatchProgressSyncService = {
         return [];
       }
       const localItems = await watchProgressRepository.getAll();
+      const profileId = resolveProfileId();
       let rows = [];
       try {
-        rows = await SupabaseApi.rpc(PULL_RPC, { p_profile_id: resolveProfileId() }, true);
+        rows = await SupabaseApi.rpc(PULL_RPC, { p_profile_id: profileId }, true);
       } catch (rpcError) {
         const ownerId = await AuthManager.getEffectiveUserId();
-        const profileId = resolveProfileId();
         try {
+          rows = await SupabaseApi.select(
+            FALLBACK_TABLE,
+            `user_id=eq.${encodeURIComponent(ownerId)}&profile_id=eq.${profileId}&select=*&order=last_watched.desc`,
+            true
+          );
+        } catch (_) {
           try {
-            rows = await SupabaseApi.select(
-              FALLBACK_TABLE,
-              `user_id=eq.${encodeURIComponent(ownerId)}&profile_id=eq.${profileId}&select=*&order=last_watched.desc`,
-              true
-            );
-            if (!Array.isArray(rows) || !rows.length) {
-              rows = await SupabaseApi.select(
-                FALLBACK_TABLE,
-                `user_id=eq.${encodeURIComponent(ownerId)}&select=*&order=last_watched.desc`,
-                true
-              );
-            }
-          } catch (_) {
             rows = await SupabaseApi.select(
               FALLBACK_TABLE,
               `user_id=eq.${encodeURIComponent(ownerId)}&select=*&order=last_watched.desc`,
               true
             );
+          } catch (primaryError) {
+            if (!shouldTryLegacyTable(primaryError)) {
+              throw rpcError;
+            }
+            rows = await SupabaseApi.select(
+              TABLE,
+              `owner_id=eq.${encodeURIComponent(ownerId)}&select=*&order=updated_at.desc`,
+              true
+            );
           }
-        } catch (primaryError) {
-          if (!shouldTryLegacyTable(primaryError)) {
-            throw rpcError;
-          }
-          rows = await SupabaseApi.select(
-            TABLE,
-            `owner_id=eq.${encodeURIComponent(ownerId)}&select=*&order=updated_at.desc`,
-            true
-          );
         }
       }
-      const remoteItems = (rows || []).map((row) => mapProgressRow(row)).filter((item) => Boolean(item.contentId));
+      const filteredRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+        const rowProfile = row?.profile_id ?? row?.profileId ?? null;
+        if (rowProfile == null || rowProfile === "") {
+          return true;
+        }
+        return String(rowProfile) === String(profileId);
+      });
+      const remoteItems = filteredRows.map((row) => mapProgressRow(row)).filter((item) => Boolean(item.contentId));
       const mergedItems = mergeProgressItems(localItems, remoteItems);
       await watchProgressRepository.replaceAll(mergedItems);
       return mergedItems;

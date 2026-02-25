@@ -95,16 +95,6 @@ async function withTimeout(promise, ms, fallbackValue) {
 }
 
 function navIconSvg(action) {
-  const iconAssetByAction = {
-    gotoHome: "assets/icons/sidebar_home.svg",
-    gotoSearch: "assets/icons/sidebar_search.svg",
-    gotoLibrary: "assets/icons/sidebar_library.svg",
-    gotoPlugin: "assets/icons/sidebar_plugin.svg",
-    gotoSettings: "assets/icons/sidebar_settings.svg"
-  };
-  if (iconAssetByAction[action]) {
-    return `<img class="home-nav-icon" src="${iconAssetByAction[action]}" alt="" aria-hidden="true" />`;
-  }
   const iconByAction = {
     gotoHome: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
     gotoSearch: "M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8L20 22l2-2-6.5-6.5zM6.5 11A4.5 4.5 0 1 1 11 15.5 4.5 4.5 0 0 1 6.5 11z",
